@@ -41,12 +41,36 @@ export async function POST(request: Request) {
     const temperature = autonomy !== undefined ? parseFloat(autonomy) : 0.7;
     const maxOutputTokens = maxTokens !== undefined ? parseInt(maxTokens) : 1000;
 
+    // Clean history for Gemini API requirements:
+    // 1. Must start with a 'user' message
+    // 2. Roles must alternate strictly between 'user' and 'model'
+    const cleanedHistory = [];
+    if (history && Array.isArray(history)) {
+      let expectUser = true;
+      for (const msg of history) {
+        const role = msg.role === 'model' ? 'model' : 'user';
+        if (expectUser && role === 'user') {
+          cleanedHistory.push({
+            role: 'user',
+            parts: msg.parts || [{ text: '' }]
+          });
+          expectUser = false;
+        } else if (!expectUser && role === 'model') {
+          cleanedHistory.push({
+            role: 'model',
+            parts: msg.parts || [{ text: '' }]
+          });
+          expectUser = true;
+        }
+      }
+    }
+
     // If API key is not configured, trigger Pollinations AI free text endpoint as fallback
     if (!genAI) {
       try {
         const apiMessages = [
           { role: 'system', content: systemInstruction },
-          ...(history || []).map((h: any) => ({
+          ...cleanedHistory.map((h: any) => ({
             role: h.role === 'model' ? 'assistant' : 'user',
             content: h.parts?.[0]?.text || ''
           })),
@@ -100,7 +124,7 @@ To see active real-time AI replies, please add your GOOGLE_GENAI_API_KEY to your
 
     // Simple chat session
     const chat = model.startChat({
-      history: history || [],
+      history: cleanedHistory,
     });
 
     const result = await chat.sendMessage(message);
